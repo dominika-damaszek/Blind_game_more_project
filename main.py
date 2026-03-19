@@ -501,9 +501,9 @@ def game_loop(screen, clock, level_idx, diff_key):
         VOICE_COMMAND = None
         
         voice_event = None
-        if current_voice_cmd == "up":
+        if current_voice_cmd == "forward":
             voice_event = pygame.K_w
-        elif current_voice_cmd == "down":
+        elif current_voice_cmd == "backward":
             voice_event = pygame.K_s
         elif current_voice_cmd == "left":
             voice_event = pygame.K_a

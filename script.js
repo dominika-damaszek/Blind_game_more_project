@@ -114,26 +114,30 @@ document.getElementById('btn-voice-link').addEventListener('click', async () => 
     const statusDiv = document.getElementById('voice-status');
     const btn = document.getElementById('btn-voice-link');
     
+    if (window.location.protocol === 'file:') {
+        alert("Увага! Браузер блокує мікрофон для локальних файлів (file:///).\n\nВам необхідно відкрити гру через http://localhost:8000 або інший локальний сервер.");
+        // continue anyway to let them see the exact error
+    }
+
     btn.disabled = true;
     btn.innerText = "Loading Model...";
     statusDiv.classList.remove('hidden');
+    statusDiv.style.color = "var(--neon-green)";
     statusDiv.innerText = "Downloading TFJS model...";
 
     try {
-        const URL = "./tm-my-audio-model/";
+        let basePath = window.location.protocol === 'file:' ? 'http://127.0.0.1:8000/' : './';
+        const URL = basePath + "tm-my-audio-model/";
         const checkpointURL = URL + "model.json";
         const metadataURL = URL + "metadata.json";
 
         recognizer = speechCommands.create("BROWSER_FFT", undefined, checkpointURL, metadataURL);
         await recognizer.ensureModelLoaded();
         
-        statusDiv.innerText = "Listening for commands...";
-        btn.innerText = "Microphone Linked";
-        btn.classList.add("active");
-        
+        statusDiv.innerText = "Model loaded! Requesting microphone...";
         const classLabels = recognizer.wordLabels();
         
-        recognizer.listen(result => {
+        await recognizer.listen(result => {
             const scores = result.scores;
             let maxScore = 0;
             let maxIndex = 0;
@@ -155,11 +159,17 @@ document.getElementById('btn-voice-link').addEventListener('click', async () => 
             overlapFactor: 0.50
         });
         
+        statusDiv.innerText = "Listening for commands...";
+        statusDiv.style.color = "var(--neon-green)";
+        btn.innerText = "Microphone Linked";
+        btn.classList.add("active");
+        
     } catch(err) {
         console.error(err);
-        statusDiv.innerText = "Error requesting mic permission.";
+        statusDiv.style.color = "var(--danger)";
+        statusDiv.innerText = "Error: " + err.message;
         btn.disabled = false;
-        btn.innerText = "Connect Microphone";
+        btn.innerText = "Try Again";
     }
 });
 

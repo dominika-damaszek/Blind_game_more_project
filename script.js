@@ -126,12 +126,12 @@ document.getElementById('btn-voice-link').addEventListener('click', async () => 
     statusDiv.innerText = "Downloading TFJS model...";
 
     try {
-        const currentPath = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/'));
-        const basePath = window.location.origin + currentPath + '/';
-        const URL = basePath + "tm-my-audio-model/";
-        const checkpointURL = URL + "model.json";
-        const metadataURL = URL + "metadata.json";
+        let activeURL = new URL('./tm-my-audio-model/', window.location.href).href;
+        const cb = "?v=" + Date.now(); // force cache bypass
+        const checkpointURL = activeURL + "model.json" + cb;
+        const metadataURL = activeURL + "metadata.json" + cb;
 
+        statusDiv.innerText = "Downloading TFJS model (Cache Bypassed)...";
         recognizer = speechCommands.create("BROWSER_FFT", undefined, checkpointURL, metadataURL);
         await recognizer.ensureModelLoaded();
         

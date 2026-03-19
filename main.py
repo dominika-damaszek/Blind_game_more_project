@@ -283,37 +283,37 @@ def game_loop(screen, clock, level_idx, diff_key):
                     elif event.key == pygame.K_d:
                         player.angle += 90.0
                         player.angle %= 360.0
+                    elif event.key == pygame.K_w:
+                        rad = math.radians(player.angle)
+                        new_x = player.x + round(math.cos(rad))
+                        new_y = player.y + round(math.sin(rad))
+                        map_x, map_y = int(new_x), int(new_y)
+                        
+                        if 0 <= map_y < len(maze) and 0 <= map_x < len(maze[0]):
+                            cell = maze[map_y][map_x]
+                            if cell != 1:
+                                player.x = new_x
+                                player.y = new_y
+                                if cell == 2:
+                                    won = True
+                                    speak("CONGRATULATIONS")
+                    elif event.key == pygame.K_s:
+                        rad = math.radians(player.angle)
+                        new_x = player.x - round(math.cos(rad))
+                        new_y = player.y - round(math.sin(rad))
+                        map_x, map_y = int(new_x), int(new_y)
+                        
+                        if 0 <= map_y < len(maze) and 0 <= map_x < len(maze[0]):
+                            cell = maze[map_y][map_x]
+                            if cell != 1:
+                                player.x = new_x
+                                player.y = new_y
+                                if cell == 2:
+                                    won = True
+                                    speak("CONGRATULATIONS")
                 
         if not won:
             keys = pygame.key.get_pressed()
-            
-            move_step = 0
-            if keys[pygame.K_w]: move_step = move_speed * dt
-            if keys[pygame.K_s]: move_step = -move_speed * dt
-                
-            if move_step != 0:
-                rad = math.radians(player.angle)
-                new_x = player.x + math.cos(rad) * move_step
-                new_y = player.y + math.sin(rad) * move_step
-                
-                pad = 0.2
-                if move_step > 0:
-                    check_x, check_y = new_x + math.cos(rad)*pad, new_y + math.sin(rad)*pad
-                else:
-                    check_x, check_y = new_x - math.cos(rad)*pad, new_y - math.sin(rad)*pad
-                    
-                map_x, map_y = int(check_x), int(check_y)
-                
-                if 0 <= map_y < len(maze) and 0 <= map_x < len(maze[0]):
-                    cell = maze[map_y][map_x]
-                    if cell != 1:
-                        player.x = new_x
-                        player.y = new_y
-                        
-                        if cell == 2:
-                            won = True
-                            speak("CONGRATULATIONS")
-            
             if keys[pygame.K_ESCAPE]:
                 return
         

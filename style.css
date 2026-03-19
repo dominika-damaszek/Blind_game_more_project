@@ -188,6 +188,12 @@ h1.glitch-text {
     color: white;
 }
 
+.btn:disabled, .btn[aria-disabled="true"] {
+    opacity: 0.4;
+    cursor: not-allowed;
+    filter: grayscale(100%);
+}
+
 .status-text {
     font-size: 0.85rem;
     color: var(--neon-green);
@@ -209,6 +215,7 @@ h1.glitch-text {
 
 .game-header {
     width: 660px;
+    margin-top: 30px;
     display: flex;
     justify-content: space-between;
     align-items: center;

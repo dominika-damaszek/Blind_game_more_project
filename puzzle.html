@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hand Puzzle Web Interface</title>
+    <link
+        href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&family=JetBrains+Mono:wght@400;700&display=swap"
+        rel="stylesheet">
+    <link rel="stylesheet" href="style.css">
+
+    <!-- MediaPipe Hands CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+</head>
+
+<body>
+    <div class="background-grid"></div>
+
+    <div class="app-container">
+        <!-- Start Menu -->
+        <aside class="menu-container glass-panel" id="menu-view">
+            <h1 class="glitch-text" data-text="HAND PUZZLE">HAND PUZZLE</h1>
+            <p class="subtitle">Optical Gesture Integration</p>
+
+            <section class="menu-section">
+                <h2>Grid Complexity</h2>
+                <div class="button-group" id="diff-group">
+                    <button class="btn btn-toggle active" data-val="5">Easy</button>
+                    <button class="btn btn-toggle" data-val="10">Medium</button>
+                    <button class="btn btn-toggle" data-val="15">Hard</button>
+                </div>
+            </section>
+
+            <div style="display: flex; gap: 1rem; width: 100%;">
+                <button class="btn btn-outline" id="btn-goto-hub" style="flex: 1;">HUB</button>
+                <button class="btn btn-primary start-btn" id="btn-start" style="flex: 2;">START CAMERA</button>
+            </div>
+            <div id="status-text" class="status-text hidden" style="margin-top: 15px;">Initializing hardware...</div>
+        </aside>
+
+        <!-- Main Canvas Area -->
+        <main class="game-container hidden" id="game-view"
+            style="max-width: 1100px; padding:0; background: transparent; box-shadow: none; position: relative;">
+            <div id="quit-box"
+                style="margin-top:15px; margin-bottom: 15px; position: absolute; top: 15px; right: 15px; z-index: 10;">
+                <button class="btn btn-danger" id="btn-quit" style="width: 100%;">EXIT GAME</button>
+            </div>
+            <canvas id="gameCanvas" width="1100" height="700"
+                style="width: 100%; border-radius: 12px; box-shadow: 0 20px 50px rgba(0,0,0,0.7); background: #050f05;"></canvas>
+        </main>
+
+        <!-- Win Overlay -->
+        <div class="overlay hidden" id="win-overlay">
+            <div class="glass-panel text-center">
+                <h1 class="success-text">PUZZLE SOLVED</h1>
+                <p>Data Reconstruction Complete.</p>
+                <br />
+                <button class="btn btn-primary" id="btn-return">PLAY AGAIN</button>
+            </div>
+        </div>
+
+        <video id="input-video" style="display:none;" autoplay playsinline></video>
+    </div>
+
+    <script src="puzzle.js"></script>
+</body>
+
+</html>

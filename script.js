@@ -145,8 +145,14 @@ function startSpatialNoise() {
 
 function setSpatialNoise(volL, volR) {
     if (!noiseGainNode) return;
-    const totalVol = (volL + volR) / 2;
-    const pan = volR - volL; // -1 = full left, +1 = full right
+    
+    // Add artificial wind gust oscillation
+    const windGust = 0.6 + 0.4 * Math.sin(Date.now() / 1000 * 1.5);
+    const finalVolL = volL * windGust;
+    const finalVolR = volR * windGust;
+    
+    const totalVol = (finalVolL + finalVolR) / 2;
+    const pan = finalVolR - finalVolL; // -1 = full left, +1 = full right
     noiseGainNode.gain.linearRampToValueAtTime(totalVol * 0.3, audioCtx.currentTime + 0.1);
     pannerNode.pan.linearRampToValueAtTime(Math.max(-1, Math.min(1, pan)), audioCtx.currentTime + 0.1);
 }
@@ -159,46 +165,154 @@ function stopSpatialNoise() {
     }
 }
 
-// === TTS ===
-function speak(text) {
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.volume = 0.7;
-    speechSynthesis.speak(u);
-}
+// === TTS ACCESSIBILITY ===
+const Voice = {
+    timer: null,
+    queueTimer: null,
+    play: function(text, debounce = false) {
+        if (!window.speechSynthesis) return;
+        clearTimeout(this.timer);
+        clearTimeout(this.queueTimer);
+        
+        const executeSpeak = (txt) => {
+            window.speechSynthesis.cancel();
+            // 50ms delay after cancel() prevents Windows native TTS buffer tearing
+            setTimeout(() => {
+                window._activeSynthUtterance = new SpeechSynthesisUtterance(", " + txt);
+                window._activeSynthUtterance.volume = 0.8; 
+                window._activeSynthUtterance.rate = 1.3;
+                window.speechSynthesis.speak(window._activeSynthUtterance);
+            }, 50);
+        };
+
+        if (!debounce) {
+            // Buffer sync events (like focus + click hitting at the exact same ms)
+            this.queueTimer = setTimeout(() => executeSpeak(text), 50);
+        } else {
+            this.timer = setTimeout(() => executeSpeak(text), 300);
+        }
+    },
+    cancelHover: function() {
+        clearTimeout(this.timer);
+    }
+};
+function speak(text) { Voice.play(text, false); }
 
 // === STATE ===
-let currentLevelIdx = 0;
-let currentDifficulty = "Medium";
+let currentLevelIdx = null;
+let currentDifficulty = null;
 let recognizer = null;
 let gameRunning = false;
 let gameWon = false;
 let lastSonarTime = 0;
+let blindMode = false;
 
 let player = { x: 0, y: 0, angle: 0, visualX: 0, visualY: 0, visualAngle: 0 };
 let activeMaze = [], goalX = 0, goalY = 0;
 
+const hubView  = document.getElementById('hub-view');
 const menuView = document.getElementById('menu-view');
 const gameView = document.getElementById('game-view');
 const canvas   = document.getElementById('gameCanvas');
 const ctx      = canvas.getContext('2d');
 const winOverlay = document.getElementById('win-overlay');
+const dlOverlay  = document.getElementById('dl-overlay');
+
+// === TTS HOVER AND WELCOME ===
+let welcomed = false;
+const hubWelcome = "Welcome to the Game Hub main menu. You are here. Your options to choose are: Play Audio Maze, Play Hand Puzzle game, or Download the code for those games.";
+
+const initWelcome = () => {
+    if (!welcomed) {
+        speak(hubWelcome);
+        welcomed = true;
+    }
+};
+
+document.addEventListener('click', initWelcome);
+document.addEventListener('keydown', initWelcome);
+
+document.addEventListener('DOMContentLoaded', () => {
+    document.querySelectorAll('button, a.btn, h1, h2, p, .subtitle, .instruction').forEach(el => {
+        const getTxt = () => {
+            let baseTxt = el.getAttribute('aria-label') || el.textContent || el.innerText || "";
+            let t = baseTxt.replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '').trim();
+            if (el.getAttribute('aria-disabled') === 'true') t += " (locked, select a difficulty first)";
+            return t;
+        };
+        el.addEventListener('focus', () => Voice.play(getTxt(), false));
+        el.addEventListener('mouseenter', () => Voice.play(getTxt(), false));
+        el.addEventListener('mouseleave', () => Voice.cancelHover());
+    });
+});
 
 // === UI SETUP ===
+document.getElementById('btn-goto-maze').addEventListener('click', () => {
+    currentLevelIdx = null; currentDifficulty = null;
+    document.querySelectorAll('#level-group .btn-toggle').forEach(b => b.classList.remove('active'));
+    document.getElementById('btn-voice-link').setAttribute('aria-disabled', 'true');
+    document.getElementById('btn-blind-toggle').setAttribute('aria-disabled', 'true');
+    document.getElementById('btn-start').setAttribute('aria-disabled', 'true');
+    
+    hubView.classList.add('hidden');
+    menuView.classList.remove('hidden');
+    speak("Audio Maze configuration opened. Please select a difficulty first.");
+});
+
+document.getElementById('btn-maze-tutorial').addEventListener('click', () => {
+    speak("Tutorial. Wind sounds in your left or right ear indicate open paths. A beeping sonar gets faster as you approach the exit. A low thump means you hit a wall. Navigate using W A S D or voice commands to reach the goal.");
+});
+
+document.getElementById('btn-goto-puzzle').addEventListener('click', () => {
+    speak("Loading Hand Puzzle.");
+    setTimeout(() => { window.location.href = 'puzzle.html'; }, 300);
+});
+
+document.getElementById('btn-download-games').addEventListener('click', () => {
+    dlOverlay.classList.remove('hidden');
+    speak("Download menu opened.");
+});
+
+document.getElementById('btn-dl-close').addEventListener('click', () => {
+    dlOverlay.classList.add('hidden');
+    speak("Closed.");
+});
+
+document.getElementById('btn-back-hub').addEventListener('click', () => {
+    menuView.classList.add('hidden');
+    hubView.classList.remove('hidden');
+    speak("Returned to Game Hub main menu. Options: Play Audio Maze, Play Hand Puzzle, or Download games.");
+});
+
+document.getElementById('btn-blind-toggle').addEventListener('click', e => {
+    if (e.target.getAttribute('aria-disabled') === 'true') return;
+    blindMode = !blindMode;
+    e.target.innerText = "Blind: " + (blindMode ? "ON" : "OFF");
+    e.target.classList.toggle('active', blindMode);
+    speak("Blind mode is now " + (blindMode ? "ON" : "OFF"));
+});
+
 document.querySelectorAll('#level-group .btn-toggle').forEach(btn => {
-    btn.addEventListener('click', e => {
+    btn.addEventListener('click', () => {
         document.querySelectorAll('#level-group .btn-toggle').forEach(b => b.classList.remove('active'));
-        e.target.classList.add('active');
-        currentLevelIdx = parseInt(e.target.dataset.val);
-        speak("Level " + (currentLevelIdx + 1));
+        btn.classList.add('active');
+        currentLevelIdx = parseInt(btn.dataset.val);
+        const diffs = ["Easy", "Medium", "Hard"];
+        currentDifficulty = diffs[currentLevelIdx];
+        speak("Level " + currentDifficulty + " selected. Options unlocked.");
+        
+        document.getElementById('btn-voice-link').setAttribute('aria-disabled', 'false');
+        document.getElementById('btn-blind-toggle').setAttribute('aria-disabled', 'false');
+        document.getElementById('btn-start').setAttribute('aria-disabled', 'false');
     });
 });
 document.querySelectorAll('#diff-group .btn-toggle').forEach(btn => {
-    btn.addEventListener('click', e => {
+    btn.addEventListener('click', () => {
         document.querySelectorAll('#diff-group .btn-toggle').forEach(b => b.classList.remove('active'));
-        e.target.classList.add('active');
-        currentDifficulty = e.target.dataset.val;
-        speak(currentDifficulty);
+        btn.classList.add('active');
+        currentDifficulty = btn.dataset.val;
+        const map = {"Easy": "level Easy", "Medium": "level Medium", "Hard": "level Hard"};
+        speak(map[currentDifficulty]);
     });
 });
 document.getElementById('btn-start').addEventListener('click', startGame);
@@ -207,16 +321,18 @@ document.getElementById('btn-return').addEventListener('click', returnToMenu);
 
 // === VOICE CONTROL ===
 document.getElementById('btn-voice-link').addEventListener('click', async () => {
-    const statusDiv = document.getElementById('voice-status');
     const btn = document.getElementById('btn-voice-link');
+    if (btn.getAttribute('aria-disabled') === 'true') return;
+    const statusDiv = document.getElementById('voice-status');
 
-    btn.disabled = true;
+    btn.setAttribute('aria-disabled', 'true');
     btn.innerText = "Loading Model...";
     statusDiv.classList.remove('hidden');
     statusDiv.style.color = "var(--neon-green)";
     statusDiv.innerText = "Downloading TFJS model...";
 
     try {
+        speak("Requesting microphone permission...");
         const modelBase = new URL('./tm-my-audio-model/', window.location.href).href;
         const cb = "?v=" + Date.now();
         const checkpointURL = modelBase + "model.json" + cb;
@@ -279,6 +395,7 @@ function castRay(px, py, angleDeg) {
 
 // === GAME START / STOP ===
 function startGame() {
+    if (document.getElementById('btn-start').getAttribute('aria-disabled') === 'true') return;
     audioCtx.resume();
     menuView.classList.add('hidden');
     gameView.classList.remove('hidden');
@@ -299,7 +416,8 @@ function startGame() {
     droneOsc = null;
 
     startSpatialNoise();
-    startDrone(50);
+    // Drone has been EXPERIMENTALLY DISABLED tracking updates
+    // startDrone(50);
 
     const dx = goalX - player.x, dy = goalY - player.y;
     let dirStr = "";
@@ -315,10 +433,12 @@ function startGame() {
 
 function returnToMenu() {
     gameRunning = false;
-    stopDrone();
+    // stopDrone();
     stopSpatialNoise();
     gameView.classList.add('hidden');
+    winOverlay.classList.add('hidden');
     menuView.classList.remove('hidden');
+    speak("Game exited. Returned to Maze configuration.");
 }
 
 // === MOVEMENT ===
@@ -363,6 +483,19 @@ window.addEventListener('keydown', e => {
     if (e.key === 'w' || e.key === 'W') executeCommand("forward");
     if (e.key === 's' || e.key === 'S') executeCommand("backward");
     if (e.key === 'Escape') returnToMenu();
+    if (e.key === ' ' || e.code === 'Space') {
+        e.preventDefault();
+        const goalDist = Math.hypot(player.x - goalX, player.y - goalY).toFixed(1);
+        const facing = angleToDirection(player.angle);
+        const dx = goalX - player.x, dy = goalY - player.y;
+        let dirStr = "";
+        if (dy < -2) dirStr += "North ";
+        else if (dy > 2) dirStr += "South ";
+        if (dx > 2) dirStr += "East";
+        else if (dx < -2) dirStr += "West";
+        dirStr = dirStr.trim() || "Nearby";
+        speak(`Facing ${facing}. Goal is to the ${dirStr}. Distance is ${goalDist} meters.`);
+    }
 });
 
 // === GAME LOOP ===
@@ -376,12 +509,12 @@ function gameLoop(timeMs) {
     const { maxNoticeableDist } = DIFFICULTIES[currentDifficulty];
 
     if (!gameWon) {
-        // --- Front distance => drone tone ---
+        // --- Front distance => drone tone (DISABLED as per Pygame sync) ---
         const distFront = castRay(player.x, player.y, player.angle);
-        const norm = Math.min(distFront, maxNoticeableDist) / maxNoticeableDist;
-        const freq = 50 + (1 - norm) * 200; // 50Hz (far) to 250Hz (close)
-        setDroneFreq(freq);
-        document.getElementById('game-dist-info').innerText = `WALL: ${distFront.toFixed(1)}m`;
+        // const norm = Math.min(distFront, maxNoticeableDist) / maxNoticeableDist;
+        // const freq = 50 + (1 - norm) * 200; // 50Hz (far) to 250Hz (close)
+        // setDroneFreq(freq);
+        document.getElementById('game-dist-info').innerText = blindMode ? "BLIND MODE ACTIVE" : `WALL: ${distFront.toFixed(1)}m`;
 
         // --- Spatial Audio (Left/Right openings) ---
         const distLeft  = castRay(player.x, player.y, player.angle - 90);
@@ -430,8 +563,9 @@ function drawGame() {
     };
 
     // Draw maze cells
-    for (let r = 0; r < activeMaze.length; r++) {
-        for (let c = 0; c < activeMaze[0].length; c++) {
+    if (!blindMode) {
+        for (let r = 0; r < activeMaze.length; r++) {
+            for (let c = 0; c < activeMaze[0].length; c++) {
             const cell = activeMaze[r][c];
             if (cell === 0) continue;
 
@@ -460,41 +594,50 @@ function drawGame() {
             }
         }
     }
+    }
 
     if (!gameWon) {
-        // Radar cone pointing straight UP (player always faces up)
-        const distFront = castRay(player.x, player.y, player.angle);
-        const spread = 30 * Math.PI / 180;
-        const UP = -Math.PI / 2;
+        if (!blindMode) {
+            // Radar cone pointing straight UP (player always faces up)
+            const distFront = castRay(player.x, player.y, player.angle);
+            const spread = 30 * Math.PI / 180;
+            const UP = -Math.PI / 2;
 
-        ctx.beginPath();
-        ctx.moveTo(cx, cy);
-        ctx.arc(cx, cy, distFront * CELL, UP - spread / 2, UP + spread / 2);
-        ctx.lineTo(cx, cy);
-        ctx.fillStyle = 'rgba(0, 255, 100, 0.18)';
-        ctx.fill();
-        ctx.strokeStyle = 'rgba(0, 255, 100, 0.5)';
-        ctx.lineWidth = 1.5;
-        ctx.stroke();
+            ctx.beginPath();
+            ctx.moveTo(cx, cy);
+            ctx.arc(cx, cy, distFront * CELL, UP - spread / 2, UP + spread / 2);
+            ctx.lineTo(cx, cy);
+            ctx.fillStyle = 'rgba(0, 255, 100, 0.18)';
+            ctx.fill();
+            ctx.strokeStyle = 'rgba(0, 255, 100, 0.5)';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
 
-        // Player dot at center
-        ctx.beginPath();
-        ctx.arc(cx, cy, 6, 0, Math.PI * 2);
-        ctx.fillStyle = '#96ff96';
-        ctx.fill();
-        ctx.beginPath();
-        ctx.arc(cx, cy, 10, 0, Math.PI * 2);
-        ctx.strokeStyle = '#00ff64';
-        ctx.lineWidth = 2;
-        ctx.stroke();
+            // Player dot at center
+            ctx.beginPath();
+            ctx.arc(cx, cy, 6, 0, Math.PI * 2);
+            ctx.fillStyle = '#96ff96';
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(cx, cy, 10, 0, Math.PI * 2);
+            ctx.strokeStyle = '#00ff64';
+            ctx.lineWidth = 2;
+            ctx.stroke();
 
-        // HUD
-        const goalDist = Math.hypot(player.x - goalX, player.y - goalY);
-        const facing = angleToDirection(player.angle);
-        const font = ctx.font;
-        ctx.font = '15px JetBrains Mono, monospace';
-        ctx.fillStyle = '#00c850';
-        ctx.fillText(`Wall: ${castRay(player.x, player.y, player.angle).toFixed(1)}m  Goal: ${goalDist.toFixed(1)}m  Facing: ${facing}`, 12, 24);
-        ctx.font = font;
+            // HUD
+            const goalDist = Math.hypot(player.x - goalX, player.y - goalY);
+            const facing = angleToDirection(player.angle);
+            const font = ctx.font;
+            ctx.font = '15px JetBrains Mono, monospace';
+            ctx.fillStyle = '#00c850';
+            ctx.fillText(`Wall: ${castRay(player.x, player.y, player.angle).toFixed(1)}m  Goal: ${goalDist.toFixed(1)}m  Facing: ${facing}`, 12, 24);
+            ctx.font = font;
+        } else {
+            const font = ctx.font;
+            ctx.font = '15px JetBrains Mono, monospace';
+            ctx.fillStyle = '#0a3014';
+            ctx.fillText(`ESC to Menu | BLIND MODE ACTIVE`, 12, 24);
+            ctx.font = font;
+        }
     }
 }

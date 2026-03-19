@@ -22,7 +22,7 @@
     <div id="last-cmd">...</div>
 
     <script>
-        const URL = "./tm-my-audio-model/";
+        const URL = "http://127.0.0.1:8080/tm-my-audio-model/";
         let recognizer;
 
         async function createModel() {
@@ -71,7 +71,7 @@
                         console.log("Heard:", command, "Score:", maxScore);
                         
                         // Send command to the Python game
-                        fetch('/api/command?c=' + encodeURIComponent(command))
+                        fetch('http://127.0.0.1:8080/api/command?c=' + encodeURIComponent(command))
                             .catch(e => console.error("Error sending command:", e));
                     }
                 }, {

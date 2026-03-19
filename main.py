@@ -12,6 +12,11 @@ import webbrowser
 VOICE_COMMAND = None
 
 class VoiceServerHandler(SimpleHTTPRequestHandler):
+    def __init__(self, *args, **kwargs):
+        import os
+        directory = os.path.dirname(os.path.abspath(__file__))
+        super().__init__(*args, directory=directory, **kwargs)
+
     def log_message(self, format, *args):
         pass
     def do_GET(self):
@@ -31,8 +36,13 @@ class VoiceServerHandler(SimpleHTTPRequestHandler):
             super().do_GET()
 
 def start_voice_server():
-    server = HTTPServer(('127.0.0.1', 8080), VoiceServerHandler)
-    server.serve_forever()
+    try:
+        HTTPServer.allow_reuse_address = True
+        server = HTTPServer(('127.0.0.1', 8080), VoiceServerHandler)
+        print("Voice server started at http://127.0.0.1:8080")
+        server.serve_forever()
+    except Exception as e:
+        print(f"Failed to start voice server: {e}")
 
 # ------ CONFIGURATION ------
 MAZE_LEVELS = [

@@ -126,7 +126,8 @@ document.getElementById('btn-voice-link').addEventListener('click', async () => 
     statusDiv.innerText = "Downloading TFJS model...";
 
     try {
-        let basePath = window.location.protocol === 'file:' ? 'http://127.0.0.1:8000/' : './';
+        const currentPath = window.location.pathname.substring(0, window.location.pathname.lastIndexOf('/'));
+        const basePath = window.location.origin + currentPath + '/';
         const URL = basePath + "tm-my-audio-model/";
         const checkpointURL = URL + "model.json";
         const metadataURL = URL + "metadata.json";

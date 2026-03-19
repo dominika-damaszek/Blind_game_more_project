@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Audio Maze - Voice Controller</title>
+    <!-- Load TensorFlow.js -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@1.3.1/dist/tf.min.js"></script>
+    <!-- Load SpeechCommands -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/speech-commands@0.4.0/dist/speech-commands.min.js"></script>
+    <style>
+        body { font-family: Courier, monospace; background-color: #050f05; color: #00ff64; text-align: center; padding: 50px; }
+        h1 { color: #00ff64; }
+        button { background-color: #142814; color: #00ff64; border: 2px solid #285028; padding: 20px 40px; font-size: 24px; cursor: pointer; border-radius: 5px; font-family: Courier, monospace; font-weight: bold; margin-bottom: 30px; }
+        button:hover { background-color: #285028; }
+        #status { font-size: 24px; margin-top: 20px; }
+        #last-cmd { font-size: 48px; color: #ffffff; font-weight: bold; margin-top: 20px; text-transform: uppercase; }
+    </style>
+</head>
+<body>
+    <h1>Audio Maze Voice Controller</h1>
+    <button id="startBtn">START MICROPHONE</button>
+    <div id="status">Click START to enable voice control.</div>
+    <div id="last-cmd">...</div>
+
+    <script>
+        const URL = "./tm-my-audio-model/";
+        let recognizer;
+
+        async function createModel() {
+            const checkpointURL = URL + "model.json";
+            const metadataURL = URL + "metadata.json";
+
+            recognizer = speechCommands.create(
+                "BROWSER_FFT",
+                undefined,
+                checkpointURL,
+                metadataURL);
+
+            await recognizer.ensureModelLoaded();
+            return recognizer;
+        }
+
+        document.getElementById('startBtn').addEventListener('click', async () => {
+            const btn = document.getElementById('startBtn');
+            const status = document.getElementById('status');
+            const lastCmd = document.getElementById('last-cmd');
+            
+            btn.disabled = true;
+            status.innerText = "Loading AI Model...";
+            
+            try {
+                await createModel();
+                const classLabels = recognizer.wordLabels(); 
+                status.innerText = "Listening for commands... (Keep this window open in the background)";
+                btn.innerText = "MICROPHONE ACTIVE";
+                btn.style.backgroundColor = "#006428";
+                
+                recognizer.listen(result => {
+                    const scores = result.scores;
+                    let maxScore = 0;
+                    let maxIndex = 0;
+                    for (let i = 0; i < scores.length; i++) {
+                        if (scores[i] > maxScore) {
+                            maxScore = scores[i];
+                            maxIndex = i;
+                        }
+                    }
+                    
+                    const command = classLabels[maxIndex];
+                    if (maxScore > 0.85 && command !== "Background Noise") {
+                        lastCmd.innerText = command;
+                        console.log("Heard:", command, "Score:", maxScore);
+                        
+                        // Send command to the Python game
+                        fetch('/api/command?c=' + encodeURIComponent(command))
+                            .catch(e => console.error("Error sending command:", e));
+                    }
+                }, {
+                    includeSpectrogram: false,
+                    probabilityThreshold: 0.85,
+                    invokeCallbackOnNoiseAndUnknown: false,
+                    overlapFactor: 0.50 
+                });
+            } catch (err) {
+                console.error(err);
+                status.innerText = "Error: " + err.message + "\nPlease make sure you allow microphone access!";
+                btn.disabled = false;
+                btn.innerText = "TRY AGAIN";
+            }
+        });
+    </script>
+</body>
+</html>

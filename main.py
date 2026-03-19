@@ -4,6 +4,35 @@ import math
 import subprocess
 import time
 import sys
+import threading
+from http.server import SimpleHTTPRequestHandler, HTTPServer
+import urllib.parse
+import webbrowser
+
+VOICE_COMMAND = None
+
+class VoiceServerHandler(SimpleHTTPRequestHandler):
+    def log_message(self, format, *args):
+        pass
+    def do_GET(self):
+        global VOICE_COMMAND
+        if self.path.startswith('/api/command'):
+            query = urllib.parse.urlparse(self.path).query
+            params = urllib.parse.parse_qs(query)
+            if 'c' in params:
+                VOICE_COMMAND = params['c'][0].lower()
+            
+            self.send_response(200)
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header('Content-type', 'text/plain')
+            self.end_headers()
+            self.wfile.write(b"OK")
+        else:
+            super().do_GET()
+
+def start_voice_server():
+    server = HTTPServer(('127.0.0.1', 8080), VoiceServerHandler)
+    server.serve_forever()
 
 # ------ CONFIGURATION ------
 MAZE_LEVELS = [
@@ -230,6 +259,7 @@ def menu_loop(screen, clock):
     return selected_level, selected_diff
 
 def game_loop(screen, clock, level_idx, diff_key):
+    global VOICE_COMMAND
     maze = MAZE_LEVELS[level_idx]
     diff = DIFFICULTIES[diff_key]
     
@@ -264,8 +294,61 @@ def game_loop(screen, clock, level_idx, diff_key):
     running = True
     won = False
 
+    def handle_movement(key_code):
+        nonlocal won
+        if key_code == pygame.K_a:
+            player.angle -= 90.0
+            player.angle %= 360.0
+        elif key_code == pygame.K_d:
+            player.angle += 90.0
+            player.angle %= 360.0
+        elif key_code == pygame.K_w:
+            rad = math.radians(player.angle)
+            new_x = player.x + round(math.cos(rad))
+            new_y = player.y + round(math.sin(rad))
+            map_x, map_y = int(new_x), int(new_y)
+            
+            if 0 <= map_y < len(maze) and 0 <= map_x < len(maze[0]):
+                cell = maze[map_y][map_x]
+                if cell != 1:
+                    player.x = new_x
+                    player.y = new_y
+                    if cell == 2:
+                        won = True
+                        speak("CONGRATULATIONS")
+        elif key_code == pygame.K_s:
+            rad = math.radians(player.angle)
+            new_x = player.x - round(math.cos(rad))
+            new_y = player.y - round(math.sin(rad))
+            map_x, map_y = int(new_x), int(new_y)
+            
+            if 0 <= map_y < len(maze) and 0 <= map_x < len(maze[0]):
+                cell = maze[map_y][map_x]
+                if cell != 1:
+                    player.x = new_x
+                    player.y = new_y
+                    if cell == 2:
+                        won = True
+                        speak("CONGRATULATIONS")
+
     while running:
         dt = clock.tick(60) / 1000.0
+        
+        current_voice_cmd = VOICE_COMMAND
+        VOICE_COMMAND = None
+        
+        voice_event = None
+        if current_voice_cmd == "up":
+            voice_event = pygame.K_w
+        elif current_voice_cmd == "down":
+            voice_event = pygame.K_s
+        elif current_voice_cmd == "left":
+            voice_event = pygame.K_a
+        elif current_voice_cmd == "right":
+            voice_event = pygame.K_d
+            
+        if not won and voice_event is not None:
+            handle_movement(voice_event)
         
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
@@ -277,40 +360,7 @@ def game_loop(screen, clock, level_idx, diff_key):
                     if event.key == pygame.K_RETURN or event.key == pygame.K_ESCAPE:
                         return 
                 else:
-                    if event.key == pygame.K_a:
-                        player.angle -= 90.0
-                        player.angle %= 360.0
-                    elif event.key == pygame.K_d:
-                        player.angle += 90.0
-                        player.angle %= 360.0
-                    elif event.key == pygame.K_w:
-                        rad = math.radians(player.angle)
-                        new_x = player.x + round(math.cos(rad))
-                        new_y = player.y + round(math.sin(rad))
-                        map_x, map_y = int(new_x), int(new_y)
-                        
-                        if 0 <= map_y < len(maze) and 0 <= map_x < len(maze[0]):
-                            cell = maze[map_y][map_x]
-                            if cell != 1:
-                                player.x = new_x
-                                player.y = new_y
-                                if cell == 2:
-                                    won = True
-                                    speak("CONGRATULATIONS")
-                    elif event.key == pygame.K_s:
-                        rad = math.radians(player.angle)
-                        new_x = player.x - round(math.cos(rad))
-                        new_y = player.y - round(math.sin(rad))
-                        map_x, map_y = int(new_x), int(new_y)
-                        
-                        if 0 <= map_y < len(maze) and 0 <= map_x < len(maze[0]):
-                            cell = maze[map_y][map_x]
-                            if cell != 1:
-                                player.x = new_x
-                                player.y = new_y
-                                if cell == 2:
-                                    won = True
-                                    speak("CONGRATULATIONS")
+                    handle_movement(event.key)
                 
         if not won:
             keys = pygame.key.get_pressed()
@@ -375,6 +425,10 @@ def game_loop(screen, clock, level_idx, diff_key):
         pygame.display.flip()
 
 def main():
+    server_thread = threading.Thread(target=start_voice_server, daemon=True)
+    server_thread.start()
+    webbrowser.open('http://127.0.0.1:8080/voice_controller.html')
+
     pygame.mixer.pre_init(frequency=44100, size=-16, channels=2, buffer=512)
     pygame.init()
     

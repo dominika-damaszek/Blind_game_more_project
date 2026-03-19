@@ -241,12 +241,12 @@ function executeCommand(cmd) {
     } else if (cmd === "right") {
         player.angle += 90;
         player.angle %= 360;
-    } else if (cmd === "up") { // forward W
+    } else if (cmd === "forward") { // forward W
         const rad = player.angle * Math.PI / 180;
         const nx = player.x + Math.round(Math.cos(rad));
         const ny = player.y + Math.round(Math.sin(rad));
         tryMove(nx, ny);
-    } else if (cmd === "down") { // backward S
+    } else if (cmd === "backward") { // backward S
         const rad = player.angle * Math.PI / 180;
         const nx = player.x - Math.round(Math.cos(rad));
         const ny = player.y - Math.round(Math.sin(rad));

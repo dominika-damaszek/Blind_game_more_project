@@ -1,6 +1,7 @@
 import pygame
 import numpy as np
 import math
+import os
 import subprocess
 import time
 import sys
@@ -45,45 +46,72 @@ def start_voice_server():
         print(f"Failed to start voice server: {e}")
 
 # ------ CONFIGURATION ------
-MAZE_LEVELS = [
-    # Level 1
-    [
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        [1, 0, 0, 0, 1, 0, 0, 0, 2, 1],
-        [1, 0, 1, 0, 1, 0, 1, 1, 1, 1],
-        [1, 0, 1, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 1, 1, 1, 1, 1, 1, 0, 1],
-        [1, 0, 0, 0, 0, 0, 1, 0, 0, 1],
-        [1, 1, 1, 1, 1, 0, 1, 0, 1, 1],
-        [1, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-        [1, 1, 1, 0, 1, 1, 1, 1, 0, 1],
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-    ],
-    # Level 2
-    [
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        [1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-        [1, 0, 1, 1, 1, 0, 1, 0, 1, 1, 0, 1],
-        [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 1],
-        [1, 1, 1, 0, 1, 1, 1, 1, 1, 0, 1, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        [1, 0, 1, 1, 1, 1, 1, 1, 1, 1, 0, 1],
-        [1, 0, 1, 0, 0, 0, 0, 0, 0, 1, 2, 1],
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-    ],
-    # Level 3
-    [
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1],
-        [1, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 2, 1],
-        [1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1],
-        [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-        [1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1, 0, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1],
-        [1, 0, 1, 1, 1, 1, 1, 1, 1, 0, 1, 1, 1, 1],
-        [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1],
-        [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]
-    ]
-]
+import random
+
+LEVEL_CONFIGS = {
+    0: {"width": 11, "height": 11, "loop_prob": 0.05},
+    1: {"width": 15, "height": 15, "loop_prob": 0.10},
+    2: {"width": 21, "height": 21, "loop_prob": 0.15}
+}
+
+def generate_random_maze(width, height, loop_prob=0.0):
+    """
+    Generates a procedural maze using Randomized Depth-First Search (Recursive Backtracking).
+    Adds 'fake paths' and loops by breaking walls randomly based on loop_prob.
+    Start (0) is placed at (1,1); Goal (2) is placed at the farthest carved connected cell.
+    """
+    # Ensure dimensions are odd
+    if width % 2 == 0: width += 1
+    if height % 2 == 0: height += 1
+        
+    maze = [[1 for _ in range(width)] for _ in range(height)]
+    
+    # Directions: (dx, dy)
+    dirs = [(0, -2), (0, 2), (-2, 0), (2, 0)]
+    
+    def in_bounds(x, y):
+        return 0 < x < width - 1 and 0 < y < height - 1
+        
+    stack = [(1, 1)]
+    maze[1][1] = 0
+    distances = {(1, 1): 0}
+    
+    # DFS Carving
+    while stack:
+        ux, uy = stack[-1]
+        random.shuffle(dirs)
+        carved = False
+        
+        for dx, dy in dirs:
+            nx, ny = ux + dx, uy + dy
+            if in_bounds(nx, ny) and maze[ny][nx] == 1:
+                # Carve through internal wall and destination
+                maze[uy + dy//2][ux + dx//2] = 0
+                maze[ny][nx] = 0
+                stack.append((nx, ny))
+                distances[(nx, ny)] = distances[(ux, uy)] + 1
+                carved = True
+                break
+                
+        if not carved:
+            stack.pop()
+            
+    # Add fake paths/loops to prevent it being a perfectly linear maze
+    if loop_prob > 0:
+        for y in range(1, height - 1):
+            for x in range(1, width - 1):
+                if maze[y][x] == 1:
+                    # Check if wall separates two passages
+                    horiz = maze[y][x-1] == 0 and maze[y][x+1] == 0
+                    vert = maze[y-1][x] == 0 and maze[y+1][x] == 0
+                    if (horiz or vert) and random.random() < loop_prob:
+                        maze[y][x] = 0
+                        
+    # Find the node farthest from the start to place the goal
+    farthest_node = max(distances, key=distances.get)
+    maze[farthest_node[1]][farthest_node[0]] = 2
+    
+    return maze
 
 DIFFICULTIES = {
     "Easy": {"max_noticeable_dist": 6.0, "move_speed": 4.0},
@@ -92,31 +120,125 @@ DIFFICULTIES = {
 }
 
 # ------ AUDIO & SYS LOGIC ------
-def generate_tick_sound(frequency=880, duration=0.03, sample_rate=44100):
+def generate_thump_sound(frequency=80, duration=0.15, sample_rate=44100):
+    """
+    Generates a low-frequency procedural thump sound for when the player hits a wall.
+    Uses a sine wave with a rapid exponential decay envelope for a percussive effect.
+    """
     t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
     waveform = np.sin(2 * np.pi * frequency * t)
-    envelope = np.exp(-t * 200)
-    waveform = waveform * envelope
+    envelope = np.exp(-t * 30)
+    waveform = waveform * envelope * 0.8
     samples = np.int16(waveform * 32767)
+    
+    # Duplicate for stereo
     stereo = np.empty((samples.shape[0], 2), dtype=np.int16)
     stereo[:, 0] = samples
     stereo[:, 1] = samples
     sound = pygame.sndarray.make_sound(stereo)
     return sound
 
+def generate_sonar_ping(frequency=700, duration=0.15, sample_rate=44100):
+    """
+    Generates a soft, higher-frequency 'ping' sound for the goal proximity indicator.
+    """
+    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+    waveform = np.sin(2 * np.pi * frequency * t)
+    # Quick attack, exponential decay
+    envelope = np.exp(-t * 20)
+    waveform = waveform * envelope * 0.3
+    samples = np.int16(waveform * 32767)
+    
+    stereo = np.empty((samples.shape[0], 2), dtype=np.int16)
+    stereo[:, 0] = samples
+    stereo[:, 1] = samples
+    return pygame.sndarray.make_sound(stereo)
+
+def generate_tone(frequency, duration=0.25, sample_rate=44100, volume=0.15, mod_rate=4.0):
+    """
+    Generates a short loopable sine tone with subtle amplitude modulation (tremolo).
+    Used as the continuous drone sound that shifts frequency based on wall distance.
+    """
+    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+    waveform = np.sin(2 * np.pi * frequency * t)
+    # Subtle amplitude modulation for a warm, modular feel
+    modulation = 1.0 - 0.3 * np.sin(2 * np.pi * mod_rate * t)
+    waveform = waveform * modulation * volume
+    samples = np.int16(waveform * 32767)
+    
+    stereo = np.empty((samples.shape[0], 2), dtype=np.int16)
+    stereo[:, 0] = samples
+    stereo[:, 1] = samples
+    return pygame.sndarray.make_sound(stereo)
+
+def build_tone_table(num_steps=15, freq_low=50, freq_high=120):
+    """
+    Pre-generates an array of tones from low to high frequency.
+    This array is used as a lookup table during gameplay to avoid generating tones on the fly.
+    """
+    tones = []
+    for i in range(num_steps):
+        ratio = i / (num_steps - 1)
+        freq = freq_low + (freq_high - freq_low) * ratio
+        tones.append(generate_tone(freq))
+    return tones
+
+def generate_ambient_noise(duration=0.5, sample_rate=44100, volume=0.2):
+    """
+    Generates a soft white noise/wind sound for spatial audio.
+    Used to indicate openings to the left and right.
+    """
+    t = np.linspace(0, duration, int(sample_rate * duration), endpoint=False)
+    # Generate white noise and apply a simple envelope
+    noise = np.random.uniform(-1, 1, len(t))
+    # Heavier low pass filter effect by smoothing with a large window for a dark "rumbling" sound
+    smoothed = np.convolve(noise, np.ones(30)/30, mode='same')
+    
+    waveform = smoothed * volume
+    samples = np.int16(waveform * 32767)
+    
+    stereo = np.empty((samples.shape[0], 2), dtype=np.int16)
+    stereo[:, 0] = samples
+    stereo[:, 1] = samples
+    return pygame.sndarray.make_sound(stereo)
+
+def angle_to_direction(angle):
+    """Convert angle in degrees to cardinal direction name."""
+    a = int(angle) % 360
+    if a == 0:
+        return "East"
+    elif a == 90:
+        return "South"
+    elif a == 180:
+        return "West"
+    elif a == 270:
+        return "North"
+    return ""
+
 def speak(text):
     subprocess.Popen(
-        ['powershell', '-Command', f"Add-Type -AssemblyName System.Speech; (New-Object System.Speech.Synthesis.SpeechSynthesizer).Speak('{text}');"],
+        ['powershell', '-Command', f"Add-Type -AssemblyName System.Speech; $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; $synth.Volume = 40; $synth.Speak('{text}');"],
         creationflags=subprocess.CREATE_NO_WINDOW
     )
 
 class Player:
+    """Stores the player's 2D grid position and facing angle."""
     def __init__(self, x, y, angle):
         self.x = float(x)
         self.y = float(y)
         self.angle = float(angle) # in degrees
+        
+        # Visual lerping properties for smooth camera
+        self.visual_x = self.x
+        self.visual_y = self.y
+        self.visual_angle = self.angle
 
 def cast_ray(maze, px, py, angle_deg):
+    """
+    Casts a 2D ray from (px, py) in the given direction.
+    Steps forward incrementally until it hits a wall cell (1),
+    returning the straight-line distance to that wall.
+    """
     angle_rad = math.radians(angle_deg)
     dx = math.cos(angle_rad)
     dy = math.sin(angle_rad)
@@ -270,36 +392,53 @@ def menu_loop(screen, clock):
 
 def game_loop(screen, clock, level_idx, diff_key):
     global VOICE_COMMAND
-    maze = MAZE_LEVELS[level_idx]
+    config = LEVEL_CONFIGS[level_idx]
+    maze = generate_random_maze(config["width"], config["height"], config["loop_prob"])
     diff = DIFFICULTIES[diff_key]
     
-    tick_sound = generate_tick_sound()
+    thump_sound = generate_thump_sound()
+    sonar_sound = generate_sonar_ping()
+    tone_table = build_tone_table()
     
+    tone_channel = pygame.mixer.Channel(1)
+    sonar_channel = pygame.mixer.Channel(3)
+    current_tone_idx = -1
+    last_sonar_time = time.time()
+    
+    # Ambient sound for spatial left/right opening cues
+    ambient_sound = generate_ambient_noise()
+    ambient_channel = pygame.mixer.Channel(2)
+    ambient_channel.play(ambient_sound, loops=-1)
+    ambient_channel.set_volume(0.0) # Start muted
+    
+    # Find goal position (cell == 2). Start is always (1,1) by algorithm design.
+    goal_x, goal_y = 0, 0
     start_r, start_c = 1, 1
     for r in range(len(maze)):
         for c in range(len(maze[0])):
-            if maze[r][c] == 0:
-                start_r, start_c = r, c
-                break
-        else:
-            continue
-        break
-        
+            if maze[r][c] == 2:
+                goal_x, goal_y = c + 0.5, r + 0.5
+    
     player = Player(start_c + 0.5, start_r + 0.5, 0)
     
-    speak(f"START LEVEL {level_idx + 1}")
+    # Calculate general goal direction based on start coordinates
+    dx = goal_x - player.x
+    dy = goal_y - player.y
+    dir_str = ""
+    if dy < -2: dir_str += "North "
+    elif dy > 2: dir_str += "South "
     
-    last_tick_time = time.time()
+    if dx > 2: dir_str += "East"
+    elif dx < -2: dir_str += "West"
+    dir_str = dir_str.strip() or "Nearby"
+    
+    speak(f"START LEVEL {level_idx + 1}. Facing East. The goal is generally to the {dir_str}.")
     
     move_speed = diff["move_speed"]
     rot_speed = 150.0
     max_noticeable_dist = diff["max_noticeable_dist"]
     
     cell_size = 40
-    map_w = len(maze[0]) * cell_size
-    map_h = len(maze) * cell_size
-    offset_x = (screen.get_width() - map_w) // 2
-    offset_y = (screen.get_height() - map_h) // 2
 
     running = True
     won = False
@@ -309,23 +448,35 @@ def game_loop(screen, clock, level_idx, diff_key):
         if key_code == pygame.K_a:
             player.angle -= 90.0
             player.angle %= 360.0
+            direction = angle_to_direction(player.angle)
+            if direction:
+                speak(direction)
         elif key_code == pygame.K_d:
             player.angle += 90.0
             player.angle %= 360.0
+            direction = angle_to_direction(player.angle)
+            if direction:
+                speak(direction)
+        # W key (Move Forward)
         elif key_code == pygame.K_w:
             rad = math.radians(player.angle)
             new_x = player.x + round(math.cos(rad))
             new_y = player.y + round(math.sin(rad))
             map_x, map_y = int(new_x), int(new_y)
             
+            # Check bounds and collision
             if 0 <= map_y < len(maze) and 0 <= map_x < len(maze[0]):
                 cell = maze[map_y][map_x]
-                if cell != 1:
+                if cell != 1:  # Not a wall
                     player.x = new_x
                     player.y = new_y
-                    if cell == 2:
+                    if cell == 2:  # Reached the goal
                         won = True
                         speak("CONGRATULATIONS")
+                else:  # Hit a wall
+                    thump_sound.play()
+                    
+        # S key (Move Backward)
         elif key_code == pygame.K_s:
             rad = math.radians(player.angle)
             new_x = player.x - round(math.cos(rad))
@@ -340,6 +491,8 @@ def game_loop(screen, clock, level_idx, diff_key):
                     if cell == 2:
                         won = True
                         speak("CONGRATULATIONS")
+                else:
+                    thump_sound.play()
 
     while running:
         dt = clock.tick(60) / 1000.0
@@ -378,42 +531,122 @@ def game_loop(screen, clock, level_idx, diff_key):
                 return
         
         if not won:
-            dist = cast_ray(maze, player.x, player.y, player.angle)
-            min_delay, max_delay = 0.05, 1.0
+            # 1. Front distance sensing (Drone tone)
+            dist_front = cast_ray(maze, player.x, player.y, player.angle)
             
-            normalized_dist = min(dist, max_noticeable_dist) / max_noticeable_dist
-            tick_delay = min_delay + (max_delay - min_delay) * normalized_dist
+            # Map distance to drone tone frequency: closer = higher index (higher freq)
+            normalized_dist = min(dist_front, max_noticeable_dist) / max_noticeable_dist
+            tone_idx = int((1.0 - normalized_dist) * (len(tone_table) - 1))
+            tone_idx = max(0, min(tone_idx, len(tone_table) - 1))
             
-            current_time = time.time()
-            if current_time - last_tick_time >= tick_delay:
-                tick_sound.play()
-                last_tick_time = current_time
+            if tone_idx != current_tone_idx:
+                current_tone_idx = tone_idx
+                tone_channel.play(tone_table[tone_idx], loops=-1)
+            
+            # 2. Spatial Audio for openings (Left/Right)
+            dist_left = cast_ray(maze, player.x, player.y, player.angle - 90)
+            dist_right = cast_ray(maze, player.x, player.y, player.angle + 90)
+            
+            # Threshold for considering an opening "wide enough" to make sound
+            opening_threshold = 1.5 
+            
+            vol_l = 0.0
+            vol_r = 0.0
+            
+            # If left opening is deep, pan noise to left ear
+            if dist_left > opening_threshold:
+                # Closer openings are louder
+                vol_l = min(1.0, dist_left / max_noticeable_dist) * 1.0 
+                
+            # If right opening is deep, pan noise to right ear
+            if dist_right > opening_threshold:
+                vol_r = min(1.0, dist_right / max_noticeable_dist) * 1.0
+                
+            ambient_channel.set_volume(vol_l, vol_r)
+            
+            # 3. Goal Proximity Sonar Ping
+            goal_dist = math.sqrt((player.x - goal_x) ** 2 + (player.y - goal_y) ** 2)
+            
+            # Distance mapping to pulse interval: 15m away = 2.0s interval. 0m away = 0.2s interval.
+            pulse_interval = max(0.2, min(2.0, (goal_dist / 15.0) * 1.8 + 0.2))
+            
+            if time.time() - last_sonar_time > pulse_interval:
+                sonar_channel.play(sonar_sound)
+                last_sonar_time = time.time()
+                
+        else:
+            if tone_channel.get_busy():
+                tone_channel.stop()
+            if sonar_channel.get_busy():
+                sonar_channel.stop()
+        # --- UPDATE VISUAL LERPING ---
+        lerp_speed = 12.0 * dt
+        player.visual_x += (player.x - player.visual_x) * lerp_speed
+        player.visual_y += (player.y - player.visual_y) * lerp_speed
         
+        # Shortest path angle lerp
+        diff_angle = (player.angle - player.visual_angle + 180) % 360 - 180
+        player.visual_angle += diff_angle * lerp_speed
+        
+        # --- HUD & RENDERING ---
         screen.fill((5, 15, 5))
         
+        # Screen center = permanent player screen position
+        cx = screen.get_width() // 2
+        cy = screen.get_height() // 2
+        
+        # Calculate world rotation so player visually always faces UP (-90 degrees in Pygame)
+        world_angle_deg = -90 - player.visual_angle
+        world_rad = math.radians(world_angle_deg)
+        cos_a = math.cos(world_rad)
+        sin_a = math.sin(world_rad)
+        
+        def world_to_screen(wx, wy):
+            # Translate relative to player's visual position
+            dx = wx - player.visual_x
+            dy = wy - player.visual_y
+            # 2D Rotation
+            rx = dx * cos_a - dy * sin_a
+            ry = dx * sin_a + dy * cos_a
+            # Scale and translate to screen center
+            return (cx + rx * cell_size, cy + ry * cell_size)
+
         for r in range(len(maze)):
             for c in range(len(maze[0])):
-                x = offset_x + c * cell_size
-                y = offset_y + r * cell_size
-                if maze[r][c] == 1:
-                    pygame.draw.rect(screen, (0, 255, 100), (x, y, cell_size, cell_size), 1)
-                    pygame.draw.rect(screen, (0, 40, 15), (x+1, y+1, cell_size-2, cell_size-2))
-                elif maze[r][c] == 2:
+                cell = maze[r][c]
+                if cell == 0: continue
+                
+                # Calculate the 4 corners of the cell in world coordinates -> screen coordinates
+                pts = [
+                    world_to_screen(c, r),
+                    world_to_screen(c + 1, r),
+                    world_to_screen(c + 1, r + 1),
+                    world_to_screen(c, r + 1)
+                ]
+                
+                if cell == 1:
+                    pygame.draw.polygon(screen, (0, 40, 15), pts)
+                    pygame.draw.polygon(screen, (0, 255, 100), pts, 1)
+                elif cell == 2:
                     pulse = abs(math.sin(time.time() * 5)) * 155
-                    pygame.draw.rect(screen, (100, 100 + pulse, 100), (x, y, cell_size, cell_size))
-        
-        px_screen = int(offset_x + player.x * cell_size)
-        py_screen = int(offset_y + player.y * cell_size)
+                    pygame.draw.polygon(screen, (100, 100 + pulse, 100), pts)
         
         if not won:
+            # We use logical player.angle/x/y for the text HUD so it responds instantly
             dist = cast_ray(maze, player.x, player.y, player.angle)
-            draw_radar_cone(screen, px_screen, py_screen, player.angle, dist * cell_size, (0, 255, 100))
             
-            pygame.draw.circle(screen, (150, 255, 150), (px_screen, py_screen), 6)
-            pygame.draw.circle(screen, (0, 255, 100), (px_screen, py_screen), 10, 2)
+            # Radar cone visually tied to the HUD (points straight UP constantly)
+            # The length is based on the logic raycast, but drawn from the center
+            draw_radar_cone(screen, cx, cy, -90, dist * cell_size, (0, 255, 100))
+            
+            # Draw fixed player position
+            pygame.draw.circle(screen, (150, 255, 150), (cx, cy), 6)
+            pygame.draw.circle(screen, (0, 255, 100), (cx, cy), 10, 2)
             
             font_sm = pygame.font.SysFont("Courier", 18)
-            info = font_sm.render(f"Dist: {dist:.1f}m | Ticking at {dist/max_noticeable_dist:.1f}x", True, (0, 200, 80))
+            goal_dist = math.sqrt((player.x - goal_x) ** 2 + (player.y - goal_y) ** 2)
+            facing = angle_to_direction(player.angle)
+            info = font_sm.render(f"Wall: {dist:.1f}m | Goal: {goal_dist:.1f}m | Facing: {facing}", True, (0, 200, 80))
             screen.blit(info, (10, 10))
             esc_info = font_sm.render("ESC to Menu", True, (0, 200, 80))
             screen.blit(esc_info, (screen.get_width() - 150, 10))

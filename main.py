@@ -202,6 +202,45 @@ def generate_ambient_noise(duration=0.5, sample_rate=44100, volume=0.2):
     stereo[:, 1] = samples
     return pygame.sndarray.make_sound(stereo)
 
+VOICE_CLIPS = {}
+VOICE_QUEUE = []
+VOICE_FINISHED_EVENT = pygame.USEREVENT + 1
+voice_channel = None
+
+def load_voice_clips():
+    global voice_channel
+    voice_channel = pygame.mixer.Channel(4)
+    voice_channel.set_endevent(VOICE_FINISHED_EVENT)
+    
+    files = {
+        "Level 1": "Start_Level_one.wav",
+        "Level 2": "Start_level_two.wav",
+        "Level 3": "Start_level_three.wav",
+        "Facing": "Facing.wav",
+        "North": "North.wav",
+        "South": "South.wav",
+        "East": "East.wav",
+        "West": "West.wav",
+        "North East": "North-East.wav",
+        "North West": "North-west.wav",
+        "South East": "South-East.wav",
+        "South West": "South-west.wav",
+        "Goal is": "The_goal_is.wav",
+        "CONGRATULATIONS": "Congratulations.wav"
+    }
+    for k, v in files.items():
+        path = os.path.join("audio", v)
+        if os.path.exists(path):
+            VOICE_CLIPS[k] = pygame.mixer.Sound(path)
+        else:
+            print(f"Warning: {path} not found.")
+
+def pump_voice():
+    if voice_channel and not voice_channel.get_busy() and VOICE_QUEUE:
+        next_clip = VOICE_QUEUE.pop(0)
+        if next_clip in VOICE_CLIPS:
+            voice_channel.play(VOICE_CLIPS[next_clip])
+
 def angle_to_direction(angle):
     """Convert angle in degrees to cardinal direction name."""
     a = int(angle) % 360
@@ -216,10 +255,34 @@ def angle_to_direction(angle):
     return ""
 
 def speak(text):
-    subprocess.Popen(
-        ['powershell', '-Command', f"Add-Type -AssemblyName System.Speech; $synth = New-Object System.Speech.Synthesis.SpeechSynthesizer; $synth.Volume = 40; $synth.Speak('{text}');"],
-        creationflags=subprocess.CREATE_NO_WINDOW
-    )
+    """Parses game text into a sequence of loaded .wav keys and queues them."""
+    if text in VOICE_CLIPS:
+        VOICE_QUEUE.append(text)
+        
+    elif text.startswith("START LEVEL"):
+        level_str = text.split(".")[0].replace("START ", "") # "Level 1"
+        VOICE_QUEUE.append(level_str)
+        VOICE_QUEUE.append("Facing")
+        VOICE_QUEUE.append("East")
+        
+        if "Nearby" not in text:
+            dir_str = text.split("to the ")[-1].replace(".", "").strip()
+            if dir_str in VOICE_CLIPS:
+                VOICE_QUEUE.append("Goal is")
+                VOICE_QUEUE.append(dir_str)
+                
+    elif text.startswith("Facing"):
+        facing = text.split(".")[0].replace("Facing ", "")
+        dir_str = text.split("Goal is ")[-1].replace(".", "").strip()
+        VOICE_QUEUE.append("Facing")
+        if facing in VOICE_CLIPS: VOICE_QUEUE.append(facing)
+        
+        if dir_str != "Nearby" and dir_str in VOICE_CLIPS:
+            VOICE_QUEUE.append("Goal is")
+            VOICE_QUEUE.append(dir_str)
+            
+    # Try immediately pumping the first clip into playback
+    pump_voice()
 
 class Player:
     """Stores the player's 2D grid position and facing angle."""
@@ -335,7 +398,8 @@ def menu_loop(screen, clock):
     df_btns[1].is_selected = True
     selected_diff = "Medium"
     
-    start_btn = ToggleButton(260, 420, 140, 60, "START", font_large, None)
+    start_btn = ToggleButton(260, 410, 140, 60, "START", font_large, None)
+    blind_btn = ToggleButton(260, 480, 140, 40, "Blind: OFF", font_med, False)
     
     running = True
     while running:
@@ -363,8 +427,13 @@ def menu_loop(screen, clock):
                     
             if start_btn.handle_event(event):
                 running = False
+            
+            if blind_btn.handle_event(event):
+                blind_btn.val = not blind_btn.val
+                blind_btn.is_selected = blind_btn.val
+                blind_btn.text = "Blind: ON " if blind_btn.val else "Blind: OFF"
         
-        for btn in lv_btns + df_btns + [start_btn]:
+        for btn in lv_btns + df_btns + [start_btn, blind_btn]:
             btn.check_hover(pos)
             
         screen.fill((5, 15, 5))
@@ -383,14 +452,14 @@ def menu_loop(screen, clock):
         lab2 = font_med.render("Select Difficulty:", True, (0, 200, 80))
         screen.blit(lab2, (100, 270))
         
-        for btn in lv_btns + df_btns + [start_btn]:
+        for btn in lv_btns + df_btns + [start_btn, blind_btn]:
             btn.draw(screen)
             
         pygame.display.flip()
         
-    return selected_level, selected_diff
+    return selected_level, selected_diff, blind_btn.val
 
-def game_loop(screen, clock, level_idx, diff_key):
+def game_loop(screen, clock, level_idx, diff_key, blind_mode=False):
     global VOICE_COMMAND
     config = LEVEL_CONFIGS[level_idx]
     maze = generate_random_maze(config["width"], config["height"], config["loop_prob"])
@@ -493,6 +562,19 @@ def game_loop(screen, clock, level_idx, diff_key):
                         speak("CONGRATULATIONS")
                 else:
                     thump_sound.play()
+                    
+        # Spacebar (Info Check)
+        elif key_code == pygame.K_SPACE:
+            facing = angle_to_direction(player.angle)
+            dx = goal_x - player.x
+            dy = goal_y - player.y
+            dir_str = ""
+            if dy < -2: dir_str += "North "
+            elif dy > 2: dir_str += "South "
+            if dx > 2: dir_str += "East"
+            elif dx < -2: dir_str += "West"
+            dir_str = dir_str.strip() or "Nearby"
+            speak(f"Facing {facing}. Goal is {dir_str}.")
 
     while running:
         dt = clock.tick(60) / 1000.0
@@ -514,6 +596,9 @@ def game_loop(screen, clock, level_idx, diff_key):
             handle_movement(voice_event)
         
         for event in pygame.event.get():
+            if event.type == VOICE_FINISHED_EVENT:
+                pump_voice()
+                
             if event.type == pygame.QUIT:
                 pygame.quit()
                 sys.exit()
@@ -531,36 +616,35 @@ def game_loop(screen, clock, level_idx, diff_key):
                 return
         
         if not won:
-            # 1. Front distance sensing (Drone tone)
-            dist_front = cast_ray(maze, player.x, player.y, player.angle)
-            
-            # Map distance to drone tone frequency: closer = higher index (higher freq)
-            normalized_dist = min(dist_front, max_noticeable_dist) / max_noticeable_dist
-            tone_idx = int((1.0 - normalized_dist) * (len(tone_table) - 1))
-            tone_idx = max(0, min(tone_idx, len(tone_table) - 1))
-            
-            if tone_idx != current_tone_idx:
-                current_tone_idx = tone_idx
-                tone_channel.play(tone_table[tone_idx], loops=-1)
+            # 1. Front distance sensing (Drone tone) EXPERIMENTALLY DISABLED
+            # dist_front = cast_ray(maze, player.x, player.y, player.angle)
+            # normalized_dist = min(dist_front, max_noticeable_dist) / max_noticeable_dist
+            # tone_idx = int((1.0 - normalized_dist) * (len(tone_table) - 1))
+            # tone_idx = max(0, min(tone_idx, len(tone_table) - 1))
+            # if tone_idx != current_tone_idx:
+            #     current_tone_idx = tone_idx
+            #     tone_channel.play(tone_table[tone_idx], loops=-1)
             
             # 2. Spatial Audio for openings (Left/Right)
             dist_left = cast_ray(maze, player.x, player.y, player.angle - 90)
             dist_right = cast_ray(maze, player.x, player.y, player.angle + 90)
             
-            # Threshold for considering an opening "wide enough" to make sound
-            opening_threshold = 1.5 
+            # Threshold for considering an opening
+            opening_threshold = 1.0 
             
             vol_l = 0.0
             vol_r = 0.0
             
-            # If left opening is deep, pan noise to left ear
+            # Add slow mathematical oscillation to simulate wind gusts
+            wind_gust = 0.6 + 0.4 * math.sin(time.time() * 1.5)
+            
+            # If left opening exists, pan strongly to left ear
             if dist_left > opening_threshold:
-                # Closer openings are louder
-                vol_l = min(1.0, dist_left / max_noticeable_dist) * 1.0 
+                vol_l = min(1.0, (dist_left - 1.0) / 2.0) * 1.0 * wind_gust
                 
-            # If right opening is deep, pan noise to right ear
+            # If right opening exists, pan strongly to right ear
             if dist_right > opening_threshold:
-                vol_r = min(1.0, dist_right / max_noticeable_dist) * 1.0
+                vol_r = min(1.0, (dist_right - 1.0) / 2.0) * 1.0 * wind_gust
                 
             ambient_channel.set_volume(vol_l, vol_r)
             
@@ -603,55 +687,68 @@ def game_loop(screen, clock, level_idx, diff_key):
         
         def world_to_screen(wx, wy):
             # Translate relative to player's visual position
-            dx = wx - player.visual_x
-            dy = wy - player.visual_y
-            # 2D Rotation
-            rx = dx * cos_a - dy * sin_a
-            ry = dx * sin_a + dy * cos_a
-            # Scale and translate to screen center
-            return (cx + rx * cell_size, cy + ry * cell_size)
+            # 1. Translate point so player is at origin
+            tx = (wx - player.visual_x) * cell_size
+            ty = (wy - player.visual_y) * cell_size
+            
+            # 2. Rotate around origin (player) by negative visual_angle so player always faces UP
+            rad = math.radians(-player.visual_angle - 90) # -90 to map 0deg (East) to UP
+            cos_a = math.cos(rad)
+            sin_a = math.sin(rad)
+            
+            rx = tx * cos_a - ty * sin_a
+            ry = tx * sin_a + ty * cos_a
+            
+            # 3. Translate to screen center
+            return (cx + rx, cy + ry)
 
-        for r in range(len(maze)):
-            for c in range(len(maze[0])):
-                cell = maze[r][c]
-                if cell == 0: continue
+        if not blind_mode:
+            for r in range(len(maze)):
+                for c in range(len(maze[0])):
+                    cell = maze[r][c]
+                    if cell == 0: continue
+                    
+                    # Calculate the 4 corners of the cell in world coordinates -> screen coordinates
+                    pts = [
+                        world_to_screen(c, r),
+                        world_to_screen(c + 1, r),
+                        world_to_screen(c + 1, r + 1),
+                        world_to_screen(c, r + 1)
+                    ]
+                    
+                    if cell == 1:
+                        pygame.draw.polygon(screen, (0, 40, 15), pts)
+                        pygame.draw.polygon(screen, (0, 255, 100), pts, 1)
+                    elif cell == 2:
+                        pulse = abs(math.sin(time.time() * 5)) * 155
+                        pygame.draw.polygon(screen, (100, 100 + pulse, 100), pts)
+            
+            if not won:
+                # We use logical player.angle/x/y for the text HUD so it responds instantly
+                dist = cast_ray(maze, player.x, player.y, player.angle)
                 
-                # Calculate the 4 corners of the cell in world coordinates -> screen coordinates
-                pts = [
-                    world_to_screen(c, r),
-                    world_to_screen(c + 1, r),
-                    world_to_screen(c + 1, r + 1),
-                    world_to_screen(c, r + 1)
-                ]
+                # Radar cone visually tied to the HUD (points straight UP constantly)
+                # The length is based on the logic raycast, but drawn from the center
+                draw_radar_cone(screen, cx, cy, -90, dist * cell_size, (0, 255, 100))
                 
-                if cell == 1:
-                    pygame.draw.polygon(screen, (0, 40, 15), pts)
-                    pygame.draw.polygon(screen, (0, 255, 100), pts, 1)
-                elif cell == 2:
-                    pulse = abs(math.sin(time.time() * 5)) * 155
-                    pygame.draw.polygon(screen, (100, 100 + pulse, 100), pts)
-        
-        if not won:
-            # We use logical player.angle/x/y for the text HUD so it responds instantly
-            dist = cast_ray(maze, player.x, player.y, player.angle)
-            
-            # Radar cone visually tied to the HUD (points straight UP constantly)
-            # The length is based on the logic raycast, but drawn from the center
-            draw_radar_cone(screen, cx, cy, -90, dist * cell_size, (0, 255, 100))
-            
-            # Draw fixed player position
-            pygame.draw.circle(screen, (150, 255, 150), (cx, cy), 6)
-            pygame.draw.circle(screen, (0, 255, 100), (cx, cy), 10, 2)
-            
-            font_sm = pygame.font.SysFont("Courier", 18)
-            goal_dist = math.sqrt((player.x - goal_x) ** 2 + (player.y - goal_y) ** 2)
-            facing = angle_to_direction(player.angle)
-            info = font_sm.render(f"Wall: {dist:.1f}m | Goal: {goal_dist:.1f}m | Facing: {facing}", True, (0, 200, 80))
-            screen.blit(info, (10, 10))
-            esc_info = font_sm.render("ESC to Menu", True, (0, 200, 80))
-            screen.blit(esc_info, (screen.get_width() - 150, 10))
-            
+                # Draw fixed player position
+                pygame.draw.circle(screen, (150, 255, 150), (cx, cy), 6)
+                pygame.draw.circle(screen, (0, 255, 100), (cx, cy), 10, 2)
+                
+                font_sm = pygame.font.SysFont("Courier", 18)
+                goal_dist = math.sqrt((player.x - goal_x) ** 2 + (player.y - goal_y) ** 2)
+                facing = angle_to_direction(player.angle)
+                info = font_sm.render(f"Wall: {dist:.1f}m | Goal: {goal_dist:.1f}m | Facing: {facing}", True, (0, 200, 80))
+                screen.blit(info, (10, 10))
+                esc_info = font_sm.render("ESC to Menu", True, (0, 200, 80))
+                screen.blit(esc_info, (screen.get_width() - 150, 10))
         else:
+            if not won:
+                font_sm = pygame.font.SysFont("Courier", 18)
+                esc_info = font_sm.render("ESC to Menu | BLIND MODE ACTIVE", True, (0, 100, 40))
+                screen.blit(esc_info, (10, 10))
+            
+        if won:
             overlay = pygame.Surface((screen.get_width(), screen.get_height()), pygame.SRCALPHA)
             overlay.fill((0, 255, 100, 128))
             screen.blit(overlay, (0, 0))
@@ -675,13 +772,16 @@ def main():
     pygame.mixer.pre_init(frequency=44100, size=-16, channels=2, buffer=512)
     pygame.init()
     
+    # Load all recorded .wav files
+    load_voice_clips()
+    
     screen = pygame.display.set_mode((660, 500))
     pygame.display.set_caption("Audio Maze For the Blind")
     clock = pygame.time.Clock()
     
     while True:
-        level_idx, diff_key = menu_loop(screen, clock)
-        game_loop(screen, clock, level_idx, diff_key)
+        level_idx, diff_key, blind_mode = menu_loop(screen, clock)
+        game_loop(screen, clock, level_idx, diff_key, blind_mode)
 
 if __name__ == "__main__":
     main()
